@@ -88,9 +88,11 @@ func (p *Parser) ParseWithClaims(tokenString string, claims Claims, keyFunc Keyf
 			token.Valid = true
 			return token, nil
 		}
+
+		return token, vErr
 	}
 
-	return token, vErr
+	return token, nil
 }
 
 // WARNING: Don't use this method unless you know what you're doing
