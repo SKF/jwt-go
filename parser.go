@@ -17,10 +17,10 @@ type Parser struct {
 // keyFunc will receive the parsed token and should return the key for validating.
 // If everything is kosher, err will be nil
 func (p *Parser) Parse(tokenString string, keyFunc Keyfunc) (*Token, error) {
-	return p.ParseWithClaims(tokenString, MapClaims{}, keyFunc)
+	return p.ParseWithClaims(tokenString, MapClaims{}, keyFunc, true)
 }
 
-func (p *Parser) ParseWithClaims(tokenString string, claims Claims, keyFunc Keyfunc) (*Token, error) {
+func (p *Parser) ParseWithClaims(tokenString string, claims Claims, keyFunc Keyfunc, validate bool) (*Token, error) {
 	token, parts, err := p.ParseUnverified(tokenString, claims)
 	if err != nil {
 		return token, err
@@ -44,22 +44,25 @@ func (p *Parser) ParseWithClaims(tokenString string, claims Claims, keyFunc Keyf
 
 	// Lookup key
 	var key interface{}
-	if keyFunc == nil {
-		// keyFunc was not provided.  short circuiting validation
-		return token, NewValidationError("no Keyfunc was provided.", ValidationErrorUnverifiable)
-	}
-	if key, err = keyFunc(token); err != nil {
-		// keyFunc returned an error
-		if ve, ok := err.(*ValidationError); ok {
-			return token, ve
+
+	if validate {
+		if keyFunc == nil {
+			// keyFunc was not provided.  short circuiting validation
+			return token, NewValidationError("no Keyfunc was provided.", ValidationErrorUnverifiable)
 		}
-		return token, &ValidationError{Inner: err, Errors: ValidationErrorUnverifiable}
+		if key, err = keyFunc(token); err != nil {
+			// keyFunc returned an error
+			if ve, ok := err.(*ValidationError); ok {
+				return token, ve
+			}
+			return token, &ValidationError{Inner: err, Errors: ValidationErrorUnverifiable}
+		}
 	}
 
 	vErr := &ValidationError{}
 
 	// Validate Claims
-	if !p.SkipClaimsValidation {
+	if !p.SkipClaimsValidation && validate {
 		if err := token.Claims.Valid(); err != nil {
 
 			// If the Claims Valid returned an error, check if it is a validation error,
@@ -74,14 +77,17 @@ func (p *Parser) ParseWithClaims(tokenString string, claims Claims, keyFunc Keyf
 
 	// Perform validation
 	token.Signature = parts[2]
-	if err = token.Method.Verify(strings.Join(parts[0:2], "."), token.Signature, key); err != nil {
-		vErr.Inner = err
-		vErr.Errors |= ValidationErrorSignatureInvalid
-	}
 
-	if vErr.valid() {
-		token.Valid = true
-		return token, nil
+	if validate {
+		if err = token.Method.Verify(strings.Join(parts[0:2], "."), token.Signature, key); err != nil {
+			vErr.Inner = err
+			vErr.Errors |= ValidationErrorSignatureInvalid
+		}
+
+		if vErr.valid() {
+			token.Valid = true
+			return token, nil
+		}
 	}
 
 	return token, vErr
